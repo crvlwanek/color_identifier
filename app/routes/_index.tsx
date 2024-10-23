@@ -2,6 +2,7 @@ import type { MetaFunction } from "@remix-run/node";
 
 import trees from "../images/trees.jpg";
 import water from "../images/water.jpg";
+import prettyTree from "../images/prettyTree.jpg";
 import { useCallback, useState } from "react";
 
 export const meta: MetaFunction = () => {
@@ -16,6 +17,7 @@ export default function Index() {
     <div className="flex">
       <Image src={trees} />
       <Image src={water} />
+      <Image src={prettyTree} />
     </div>
   );
 }
@@ -70,33 +72,88 @@ const randomElement = <T,>(array: T[]): T => {
 
 const weightedRandom = <T,>(items: T[], weights: number[]): T => {
   const totalWeight = weights.reduce((prev, curr) => prev + curr, 0);
-  const random = Math.random() * totalWeight;
+
+  let random = Math.random() * totalWeight;
   let currentWeight = 0;
 
-  items.forEach((item, index) => {
-    currentWeight += weights[index];
-    if (random < currentWeight) return item;
-  });
+  for (let i = 0; i < items.length; i++) {
+    currentWeight += weights[i];
+    if (random < currentWeight) {
+      return items[i];
+    }
+  }
 
-  // Shouldn't get here but fallback just in case
-  return items[0];
+  throw new Error("Shouldn't be here!");
 };
 
 class KMeans {
   public static cluster(k: number, points: Uint8Array[]) {
     // Initialize and pick centroids
-    const centroids = KMeans.generateInitialCentroids("k-means++", k, points);
+    let centroids = KMeans.generateInitialCentroids("k-means++", k, points);
 
     // Initialize clusters
     let clusters: Uint8Array[][];
-
     let converged = false;
+    let iterationCount = 0;
 
     while (!converged) {
-      clusters = new Array(k);
+      clusters = Array.from({ length: k }, () => []);
+      points.forEach((point) => {
+        const distances = centroids.map((centroid) =>
+          KMeans.distance(centroid, point)
+        );
+        const minDistance = Math.min(...distances);
+        const index = distances.indexOf(minDistance);
+        clusters[index].push(point);
+      });
+
+      const newCentroids = clusters.map((cluster) => {
+        const r = Math.round(
+          cluster
+            .map((point) => point[0])
+            .reduce((prev, curr) => prev + curr, 0) / cluster.length
+        );
+
+        const g = Math.round(
+          cluster
+            .map((point) => point[1])
+            .reduce((prev, curr) => prev + curr, 0) / cluster.length
+        );
+
+        const b = Math.round(
+          cluster
+            .map((point) => point[2])
+            .reduce((prev, curr) => prev + curr, 0) / cluster.length
+        );
+
+        const centroid = new Uint8Array(3);
+        centroid[0] = r;
+        centroid[1] = g;
+        centroid[2] = b;
+
+        return centroid;
+      });
+
+      if (this.areEqual(centroids, newCentroids)) {
+        converged = true;
+      }
+      iterationCount++;
+      centroids = newCentroids;
     }
+
+    console.log(iterationCount);
+    return centroids;
   }
 
+  public static areEqual(
+    centroids: Uint8Array[],
+    other: Uint8Array[]
+  ): boolean {
+    const centroidSet = new Set(centroids.map(rgbToHex));
+    return other.map(rgbToHex).every((val) => centroidSet.has(val));
+  }
+
+  // https://en.wikipedia.org/wiki/K-means%2B%2B
   public static generateInitialCentroids(
     method: "k-means++",
     k: number,
@@ -105,13 +162,14 @@ class KMeans {
     const centroids = [randomElement(points)];
     while (centroids.length < k) {
       const weights = points.map((point) => {
-        return Math.min(
-          ...centroids.map((centroid) => KMeans.distance(centroid, point))
+        return (
+          Math.max(
+            ...centroids.map((centroid) => KMeans.distance(centroid, point))
+          ) ** 2
         );
       });
 
-      const centroid = weightedRandom(points, weights);
-      centroids.push(centroid);
+      centroids.push(weightedRandom(points, weights));
     }
 
     return centroids;
@@ -132,23 +190,32 @@ type ImageProps = {
 };
 
 const Image = ({ src }: ImageProps) => {
-  const [color, setColor] = useState("#FAAFFF");
+  const [colors, setColors] = useState<string[]>([]);
 
   const onLoad: React.ReactEventHandler<HTMLImageElement> = useCallback(
     (event) => {
       const pixels = getPixelData(event);
 
-      console.log(
-        KMeans.generateInitialCentroids("k-means++", 3, pixels).map(rgbToHex)
-      );
+      const generatedColors = KMeans.cluster(6, pixels).map(rgbToHex);
+      setColors(generatedColors);
+      console.log(generatedColors);
     },
-    [setColor]
+    [setColors]
   );
 
   return (
     <div className="grid">
       <img src={src} width={500} onLoad={onLoad} />
-      <div className="h-10 w-full" style={{ backgroundColor: color }}></div>
+      <div className="flex">
+        {colors.length === 0 && <div>Loading...</div>}
+        {colors.map((color) => (
+          <div
+            key={color}
+            style={{ backgroundColor: color }}
+            className="w-10 h-10"
+          />
+        ))}
+      </div>
     </div>
   );
 };
